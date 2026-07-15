@@ -1,458 +1,354 @@
-# Multi-Factor Equity Alpha Research: Accruals, Momentum, and Size
+# Multi-Factor Equity Alpha Research: Accruals, Momentum, and Volatility
 
 ## Overview
 
-This project studies whether **accrual mispricing** can generate economically meaningful and tradable alpha in a systematic long/short equity strategy.
+This project investigates whether accounting quality, price trends, and risk characteristics can be combined into a profitable systematic equity strategy.
 
-The core hypothesis comes from the **accrual anomaly**:
+The core hypothesis is based on the **accrual anomaly**:
 
-* Firms with **high accruals** (earnings less supported by cash flow) may have overstated earnings quality and underperform.
-* Firms with **low or negative accruals** (earnings strongly backed by cash flow) may be underpriced and outperform.
+- High accrual firms report earnings less supported by cash flow and may underperform.
+- Low accrual firms generate stronger cash-backed earnings and may outperform.
 
-Rather than testing a simple academic anomaly in isolation, this project extends the idea into a **buy-side style alpha research pipeline**, combining:
+I combine:
 
-* Signal construction
-* Cross-sectional return forecasting
-* Portfolio construction
-* Robustness testing
-* Tradability analysis
+- Accruals
+- 12–1 Momentum
+- Volatility
+
+into a cross-sectional alpha model and test whether the signal generates economically significant returns after controlling for common risk factors.
 
 ---
 
-## Research Questions
+# Research Pipeline
 
-This project asks:
-
-1. Does the accrual anomaly persist in U.S. equities from 1990–2024?
-2. Does combining accruals with momentum and size improve predictive power?
-3. Are rank-weighted portfolios more robust than bucket sorting or regression-proportional weighting for noisy signals?
-4. Does the signal survive factor controls, turnover costs, and regime shifts?
+```text
+Raw Data
+    ↓
+Signal Construction
+    ↓
+Cross-Sectional Regression
+    ↓
+Expected Return Forecasts
+    ↓
+Portfolio Construction
+    ↓
+Performance Evaluation
+    ↓
+Robustness Testing
+```
 
 ---
 
 # Data
 
-## CRSP Monthly Stock File (WRDS)
+## CRSP Monthly Stock File
 
-Universe:
+**Source:** WRDS
 
-* Common stocks only (`shrcd = 10,11`)
-* NYSE / AMEX / NASDAQ (`exchcd = 1,2,3`)
-* Sample: 1990–2024
-* Price filter:
+**Universe:**
 
-```python
-abs(prc) >= 5
-```
+- Common stocks (SHRCD 10, 11)
+- NYSE / AMEX / NASDAQ
+- 1990–2024
 
-Variables:
+**Variables:**
 
-* `permno`
-* `date`
-* `ret` (total return)
-* `dlret` (delisting return)
-* `prc`
-* `shrout`
-
-### Delisting Bias Adjustment
-
-Returns are adjusted for delistings:
-
-```python
-ret_adj = (1+ret)*(1+dlret)-1
-```
-
-This avoids overstating performance by ignoring bankruptcies and other delistings.
+- Returns (`ret`)
+- Delisting returns (`dlret`)
+- Price (`prc`)
+- Shares outstanding (`shrout`)
 
 ---
 
 ## Compustat Quarterly Fundamentals
 
-Variables:
+**Source:** WRDS
 
-* `niq` — net income
-* `oancfq` — operating cash flow
-* `atq` — total assets
+**Variables:**
 
-Signal:
-
-## Accruals
-
-Defined as:
-
-$$
-Accruals_t = \frac{NI_t - OANCF_t}{Assets_{t-1}}
-$$
-
-Interpretation:
-
-* Lower accruals → higher earnings quality
-* Higher accruals → potentially lower future returns
+- Net Income (`niq`)
+- Operating Cash Flow (`oancfq`)
+- Total Assets (`atq`)
 
 ---
 
-## Reporting Lag Control
+# Signals
 
-To avoid look-ahead bias:
+## 1. Accruals
 
-```python
-signal_date = datadate + 3 months
+```text
+Accruals = (Net Income - Operating Cash Flow) / Lagged Total Assets
 ```
 
-Signals become tradable only after assumed market availability.
+Lower accruals indicate higher earnings quality.
 
 ---
 
-## CRSP-Compustat Merge
+## 2. Momentum
 
-Merged using CCM link table.
+Standard 12–1 momentum:
 
-Used as-of alignment logic:
-
-* Each monthly return uses only the most recent available signal
-* Never uses future accounting information
-
-This simulates realistic information availability.
-
----
-
-# Additional Predictors
-
-## 12–1 Momentum
-
-Standard equity momentum signal:
-
-$$
-MOM_{i,t} = \prod_{s=t-12}^{t-2}(1+r_{i,s}) -1
-$$
-
-Uses months t-12 through t-2.
-Skips month t-1 to avoid short-term reversal effects.
-
----
-
-## Size
-
-Market capitalization:
-
-$$
-ME = |PRC| \times SHROUT
-$$
-
-Feature used:
-
-$$
-log(ME)
-$$
-
----
-
-## Feature Standardization
-
-Signals standardized cross-sectionally each month:
-
-```python
-z = (x - mean(x))/std(x)
+```text
+Past 12-month return excluding most recent month
 ```
 
-Also winsorized at tails to reduce outlier sensitivity.
+This follows Jegadeesh & Titman (1993).
 
 ---
 
-# Methodology
+## 3. Volatility
 
-## Approach 1 — Portfolio Sorts
+Realized trailing volatility:
 
-Baseline anomaly test:
-
-* Sort stocks into quantiles based on accruals
-* Form value-weighted portfolios
-* Test long low-accrual / short high-accrual spread
-
-This establishes whether the anomaly exists.
-
----
-
-## Approach 2 — Cross-Sectional Return Forecasting
-
-Estimate:
-
-$$
-R_{i,t+1} = \alpha_t + \beta_1 Accrual_{i,t} + \beta_2 Momentum_{i,t} + \beta_3 Size_{i,t} + \epsilon_{i,t}
-$$
-
-Run cross-sectional regressions monthly.
-
-Use rolling windows:
-
-* Train on prior 10 years
-* Trade following year out of sample
-
-Average coefficient estimates generate:
-
-$$
-\hat R_{i,t+1} = \hat\beta X_{i,t}
-$$
-
-Predicted returns become the alpha signal.
-
----
-
-# Portfolio Construction
-
-## Rank-Weighted Portfolio
-
-Rather than weighting proportional to noisy predicted returns:
-
-$$
-w_i \propto \hat R_i
-$$
-
-I use rank-weighting.
-
-### Step 1: Rank predicted returns
-
-Take:
-
-* Top 10% → long book
-* Bottom 10% → short book
-
----
-
-### Step 2: Convert rank to percentile
-
-For stock rank (r_i):
-
-$$
-p_i = \frac{r_i-1}{N-1}
-$$
-
----
-
-### Step 3: Smoothed rank weights
-
-Use:
-
-$$
-score_i = p_i + c
-$$
-
-with:
-
-$$
-c = 0.5
-$$
-
-Then:
-
-$$
-w_i = \frac{score_i}{\sum_j score_j}
-$$
-
-Properties:
-
-* Long weights sum to +1
-* Short weights sum to -1
-* Dollar neutral portfolio
-* Avoids overconcentration
-* Maximum/minimum weight ratio:
-
-$$
-\frac{1+c}{c}=3
-$$
-
-This strikes a balance between:
-
-* Equal weighting robustness
-* Regression-weighted efficiency
-
----
-
-## Rebalancing
-
-Monthly:
-
-* Recompute signals
-* Rerank stocks
-* Rebalance portfolio
-
----
-
-# Performance Evaluation
-
-Metrics tracked:
-
-* Annualized Return
-* Volatility
-* Sharpe Ratio
-* Maximum Drawdown
-* Turnover
-
----
-
-## Factor Attribution
-
-Regress excess returns on Fama-French factors:
-
-* Market
-* SMB
-* HML
-* RMW
-* CMA
-
-Estimate:
-
-* Factor exposures
-* Residual alpha
-* Statistical significance
-
----
-
-# Robustness Tests
-
-## Subsample / Regime Tests
-
-Compare:
-
-* Pre-2008
-* Post-2008
-
-Test whether signal decays across regimes.
-
----
-
-## Monotonicity Test
-
-Check whether returns deteriorate as accruals rise.
-
-Helps validate economic structure of signal.
-
----
-
-## Feature Sensitivity
-
-Alternative accrual definitions tested.
-
-Example:
-
-```python
-oancfy/4
+```text
+12-month standard deviation of returns
 ```
 
-Results should not depend on one exact accounting definition.
+Used to capture the low-volatility anomaly.
 
 ---
 
-## Noise / Placebo Test
+# Data Quality Controls
 
-Randomize signal:
-
-```python
-random_signal = np.random.randn(len(data))
-```
-
-Random signal should produce no alpha.
-
-Sanity check against data mining.
-
----
-
-## Transaction Cost Sensitivity
-
-Stress test:
-
-```python
-strategy_tc = strategy_returns - costs
-```
-
-Tests whether alpha survives implementation frictions.
-
----
-
-# Key Pitfalls Addressed
-
-This project explicitly addresses:
+This project explicitly addresses common backtesting pitfalls.
 
 ## Look-Ahead Bias
 
-Fixed via reporting lag.
+Accounting data becomes tradable only after:
 
----
+```text
+signal_date = datadate + 3 months
+```
 
-## Survivorship Bias
-
-Uses full CRSP universe each period.
+to simulate realistic reporting delays.
 
 ---
 
 ## Delisting Bias
 
-Includes `dlret`.
+Returns adjusted using:
+
+```python
+ret_adj = (1 + ret) * (1 + dlret) - 1
+```
+
+to capture bankruptcy and acquisition outcomes.
 
 ---
 
-## Outlier Fragility
+## Survivorship Bias
 
-Winsorization and clipping.
-
----
-
-## Capacity / Tradability
-
-Examines:
-
-* Turnover
-* Market-cap exposure
-* Concentration control
+Uses the full historical CRSP universe rather than surviving firms only.
 
 ---
 
-# Preliminary Insights
+## Outlier Robustness
 
-(Results section to be updated as research finalizes.)
+Signals are winsorized at extreme percentiles to reduce sensitivity to accounting outliers.
 
-Questions being evaluated:
+---
 
-* Does low-accrual alpha survive FF5 controls?
-* Does rank-weighting outperform equal-weighting?
-* Does signal weaken after 2008?
-* Are returns robust after costs?
+## Microcap Distortions
+
+Implemented:
+
+```text
+Price >= $5
+Market Cap >= $500M
+```
+
+using lagged market capitalization to avoid including stocks whose extreme returns temporarily pushed them above the threshold.
+
+---
+
+# Alpha Model
+
+Each month, estimate:
+
+```text
+Future Return =
+β1·Accruals +
+β2·Momentum +
+β3·Volatility +
+ε
+```
+
+using rolling cross-sectional regressions.
+
+**Training framework:**
+
+```text
+Train: Previous 10 years
+Test: Following year
+```
+
+This creates a realistic out-of-sample forecasting process.
+
+---
+
+# Portfolio Construction
+
+## Rank-Weighted Long/Short Portfolio
+
+Instead of using raw predicted returns directly:
+
+1. Rank stocks by expected return
+2. Long top decile
+3. Short bottom decile
+
+Convert ranks into percentile scores:
+
+```text
+score = percentile + c
+```
+
+where:
+
+```text
+c = 0.5
+```
+
+This:
+
+- Avoids excessive concentration
+- Maintains signal strength
+- Produces stable weights through time
+
+The resulting portfolio is:
+
+```text
+Dollar Neutral
+Long Weights = +1
+Short Weights = -1
+```
+
+with monthly rebalancing.
+
+---
+
+# Performance Metrics
+
+Evaluated using:
+
+- Annualized Return
+- Volatility
+- Sharpe Ratio
+- Maximum Drawdown
+- Turnover
+- Information Coefficient (IC)
+
+---
+
+# Results
+
+## Cross-Sectional Alpha Strategy
+
+| Metric | Result |
+|----------|----------|
+| FF5 Alpha | 1.38% Monthly |
+| FF5 Alpha t-stat | 8.4 |
+| Sharpe Ratio | 1.28 |
+
+---
+
+## Information Coefficient (IC)
+
+Measures whether stocks with stronger predicted returns subsequently outperform.
+
+```text
+IC = Spearman Rank Correlation
+(predicted returns, realized returns)
+```
+
+Used to evaluate signal quality independently of portfolio construction.
+
+---
+
+# Robustness Tests
+
+## Regime Analysis
+
+Evaluated:
+
+- Pre-2008
+- Post-2008
+
+to determine whether signal effectiveness changed through time.
+
+---
+
+## Feature Sensitivity
+
+Tested alternative accrual definitions.
+
+Results remained broadly consistent across specifications.
+
+---
+
+## Transaction Costs
+
+Applied turnover-based trading cost assumptions and evaluated net performance.
+
+---
+
+## Placebo Test
+
+Randomized signals produced no statistically significant alpha.
+
+This helps validate that observed performance is not the result of chance.
+
+---
+
+# Key Challenges Encountered
+
+During development several implementation issues materially affected results:
+
+- Incorrect portfolio formation period alignment
+- Monthly vs. annual portfolio reweighting mistakes
+- Market capitalization scaling errors (`SHROUT` measured in thousands)
+- Microcap-driven returns dominating backtests
+- Incorrect contemporaneous market-cap filtering
+
+Fixing these issues substantially improved realism and reduced overstated performance.
 
 ---
 
 # Technologies
 
-* Python
-* Pandas
-* NumPy
-* statsmodels
-* WRDS
-* CRSP
-* Compustat
+- Python
+- Pandas
+- NumPy
+- Statsmodels
+- WRDS
+- CRSP
+- Compustat
 
 ---
 
-## Future Extensions
+# Key Takeaways
 
-Potential next steps:
+This project evolved from a simple accrual anomaly replication into a complete systematic research workflow:
 
-* Information coefficient (IC) analysis
-* Additional signals (value, profitability)
-* Signal decay horizons (t+1, t+3, t+6)
-* Regularized models (Lasso / Ridge)
-* Transaction-cost-aware optimization
-* Compare rank weighting vs regression-proportional weighting
+- Alpha signal generation
+- Data engineering
+- Bias mitigation
+- Portfolio construction
+- Factor attribution
+- Robustness testing
+
+The primary lesson was that most of the work in quantitative research is not finding a signal—it is ensuring that the signal survives realistic implementation constraints.
 
 ---
 
-## References
+# References
 
-* Sloan (1996), *Do Stock Prices Fully Reflect Information in Accruals and Cash Flows?*
-* Fama and French (1993, 2015)
-* Jegadeesh and Titman (1993)
+- Sloan (1996), *Do Stock Prices Fully Reflect Information in Accruals and Cash Flows?*
+- Fama & French (1993, 2015)
+- Jegadeesh & Titman (1993)
 
 ---
 
 ## Author
 
-Richard Guang
+Richard Guang  
+MIT MFin | Quantitative Research | Systematic Investing
